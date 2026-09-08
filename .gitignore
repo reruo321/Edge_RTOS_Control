@@ -71,3 +71,17 @@ Thumbs.db
 *.dll
 *.exe
 
+# STM32CubeIDE build outputs
+/Debug/
+/Release/
+*.elf
+*.bin
+*.hex
+*.map
+*.d
+*.su
+
+# IDE / Eclipse user settings & metadata
+.settings/
+.launch
+*.bak
