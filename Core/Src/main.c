@@ -27,7 +27,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,7 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define RX_BUF_SIZE 256
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,7 +60,11 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+uint8_t rx_buff[RX_BUF_SIZE] = {0};
+static char ack_msg[50];
 
+uint16_t rx_data_len = 0;
+uint16_t rx_count = 0;
 /* USER CODE END 0 */
 
 /**
@@ -98,16 +103,20 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buff, RX_BUF_SIZE);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  fflush(stdout);
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  printf("Hi %d!\n", rx_count);
+	  HAL_IWDG_Refresh(&hiwdg);
+	  HAL_Delay(100);
   }
   /* USER CODE END 3 */
 }
@@ -153,7 +162,24 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+// Enables to write ITM
+int _write(int file, char *ptr, int len){
+	int data_idx;
+	for(data_idx = 0; data_idx < len; ++data_idx){
+		ITM_SendChar(*ptr++);
+	}
+	return len;
+}
 
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
+	if(huart->Instance == USART1){
+		rx_data_len = Size;
+		sprintf(ack_msg, "ACK %d\n", rx_count);
+		HAL_UART_Transmit_DMA(&huart1, (uint8_t *)ack_msg, strlen(ack_msg));
+		HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buff, RX_BUF_SIZE);
+		++rx_count;
+	}
+}
 /* USER CODE END 4 */
 
 /**
