@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 #include "dma.h"
 #include "i2c.h"
 #include "iwdg.h"
@@ -49,22 +50,25 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+extern osMessageQueueId_t rxQueueHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+const uint8_t EXPECTED_DATA_LEN = 64;
+
 uint8_t rx_buff[RX_BUF_SIZE] = {0};
-static char ack_msg[50];
 
 uint16_t rx_data_len = 0;
 uint16_t rx_count = 0;
+uint16_t last_rx_pos= 0;
 /* USER CODE END 0 */
 
 /**
@@ -106,6 +110,15 @@ int main(void)
   HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buff, RX_BUF_SIZE);
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   fflush(stdout);
@@ -114,9 +127,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  printf("Hi %d!\n", rx_count);
-	  HAL_IWDG_Refresh(&hiwdg);
-	  HAL_Delay(100);
   }
   /* USER CODE END 3 */
 }
@@ -166,6 +176,7 @@ void SystemClock_Config(void)
 int _write(int file, char *ptr, int len){
 	int data_idx;
 	for(data_idx = 0; data_idx < len; ++data_idx){
+		while(ITM->PORT[0].u32 == 0);
 		ITM_SendChar(*ptr++);
 	}
 	return len;
@@ -173,11 +184,45 @@ int _write(int file, char *ptr, int len){
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 	if(huart->Instance == USART1){
-		rx_data_len = Size;
-		sprintf(ack_msg, "ACK %d\n", rx_count);
-		HAL_UART_Transmit_DMA(&huart1, (uint8_t *)ack_msg, strlen(ack_msg));
-		HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buff, RX_BUF_SIZE);
-		++rx_count;
+		uint16_t cur_rx_pos = Size;
+		uint16_t data_len = 0;
+		uint8_t temp[64] = {0};
+
+		if(cur_rx_pos != last_rx_pos){
+			if(cur_rx_pos > last_rx_pos){
+				data_len = cur_rx_pos - last_rx_pos;
+				if(data_len > EXPECTED_DATA_LEN - 1){
+					data_len = EXPECTED_DATA_LEN - 1;
+				}
+				memcpy(temp, &rx_buff[last_rx_pos], data_len);
+			}
+			else{
+				uint16_t len1 = RX_BUF_SIZE - last_rx_pos;
+				uint16_t len2 = cur_rx_pos;
+
+				if(len1 + len2 > EXPECTED_DATA_LEN - 1){
+					if(len1 > EXPECTED_DATA_LEN - 1){
+						len1 = EXPECTED_DATA_LEN - 1;
+						len2 = 0;
+					}
+					else{
+						len2 = EXPECTED_DATA_LEN - 1 - len1;
+					}
+				}
+
+				memcpy(temp, &rx_buff[last_rx_pos], len1);
+				if(len2 > 0){
+					memcpy(&temp[len1], rx_buff, len2);
+				}
+				data_len = len1 + len2;
+			}
+
+			temp[data_len] = '\0';
+			last_rx_pos = cur_rx_pos;
+
+			osMessageQueuePut(rxQueueHandle, temp, 0, 0);
+			++rx_count;
+		}
 	}
 }
 /* USER CODE END 4 */
